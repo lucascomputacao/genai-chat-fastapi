@@ -1,14 +1,26 @@
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Path, Query, status
 
 from app.schemas import Message, Role, SessionCreate, SessionOut
-from app.store import chat_store, session_store
-
-app = FastAPI(title="GenAI Chat App")
+from app.store import MessageRecord, SessionRecord, chat_store, reset, session_store
 
 
-def get_session_messages(session_id: int) -> list[dict[str, str]]:
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    reset()
+    yield
+
+
+app = FastAPI(title="GenAI Chat App", lifespan=lifespan)
+
+SessionId = Annotated[int, Path(ge=1)]
+
+
+def get_session_messages(session_id: int) -> list[MessageRecord]:
     if session_id not in chat_store:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -18,11 +30,11 @@ def get_session_messages(session_id: int) -> list[dict[str, str]]:
 
 
 @app.post("/sessions", response_model=SessionOut, status_code=status.HTTP_201_CREATED)
-def create_session(payload: SessionCreate) -> SessionOut:
-    session = {
+async def create_session(payload: SessionCreate) -> SessionOut:
+    session: SessionRecord = {
         "session_id": len(session_store) + 1,
         "session_user": payload.session_user,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     session_store.append(session)
     chat_store[session["session_id"]] = []
@@ -34,17 +46,17 @@ def create_session(payload: SessionCreate) -> SessionOut:
     response_model=Message,
     status_code=status.HTTP_201_CREATED,
 )
-def add_message(message: Message, session_id: int = Path(ge=1)) -> Message:
+async def add_message(session_id: SessionId, message: Message) -> Message:
     messages = get_session_messages(session_id)
-    messages.append(message.model_dump())
+    messages.append({"role": message.role, "content": message.content})
     return message
 
 
 @app.get("/sessions/{session_id}/messages", response_model=list[Message])
-def list_messages(
-    session_id: int = Path(ge=1),
-    role: Role | None = Query(default=None),
-) -> list[dict[str, str]]:
+async def list_messages(
+    session_id: SessionId,
+    role: Annotated[Role | None, Query()] = None,
+) -> list[MessageRecord]:
     messages = get_session_messages(session_id)
     if role is None:
         return messages

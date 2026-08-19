@@ -14,7 +14,7 @@ lives in the process and resets on every restart.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 ## Run
@@ -31,22 +31,31 @@ Interactive docs: http://127.0.0.1:8000/docs
 pytest
 ```
 
+Lint and type checks:
+
+```bash
+ruff check app tests
+mypy
+```
+
 ## Project structure
 
 ```
+pyproject.toml   Dependencies and ruff/mypy/pytest configuration
 app/
-  main.py      FastAPI app and endpoints
-  schemas.py   Pydantic request/response models and validation
-  store.py     In-memory session_store / chat_store
+  main.py        FastAPI app and endpoints
+  schemas.py     Pydantic request/response models and validation
+  store.py       In-memory session_store / chat_store
 tests/
-  conftest.py        TestClient fixture that resets the store per test
+  conftest.py        TestClient fixture, re-seeding the store per test
   test_sessions.py   Session creation tests
   test_messages.py   Message add/list/filter tests
 ```
 
 ## Storage
 
-The store is seeded with one sample session so the API is usable right away:
+The store is seeded on application startup with one sample session, so the API is
+usable right away:
 
 ```python
 session_store = [
@@ -143,3 +152,8 @@ curl 'http://127.0.0.1:8000/sessions/1/messages?role=assistant'
   which keeps the endpoint bodies free of manual checks.
 - Missing sessions return `404` via a single `get_session_messages` helper shared
   by both message endpoints.
+- Endpoints are `async def` so each one runs to completion on the event loop.
+  With sync handlers FastAPI would run them in a thread pool, where the
+  `len(session_store) + 1` id assignment could race between concurrent requests.
+- The stores are typed with `TypedDict`, which keeps them plain Python data
+  structures while still passing `mypy --strict`.

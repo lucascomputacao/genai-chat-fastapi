@@ -16,7 +16,9 @@ def test_create_session_normalizes_username(client):
 
 
 def test_create_session_starts_with_empty_history(client):
-    session_id = client.post("/sessions", json={"session_user": "abc"}).json()["session_id"]
+    session_id = client.post("/sessions", json={"session_user": "abc"}).json()[
+        "session_id"
+    ]
 
     response = client.get(f"/sessions/{session_id}/messages")
 
